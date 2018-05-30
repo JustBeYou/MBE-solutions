@@ -1,0 +1,3 @@
+0x149A -> 5274
+
+flag n0_str1ngs_n0_pr0bl3m

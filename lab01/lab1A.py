@@ -24,3 +24,5 @@ def compute_serial(user):
         print ("%u (%x)" % (var_10, var_10))
 
 print (compute_serial("misuABC"))
+
+# flag 1uCKy_Gue55
